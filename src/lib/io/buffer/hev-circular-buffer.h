@@ -10,8 +10,19 @@
 #ifndef __HEV_CIRCULAR_BUFFER_H__
 #define __HEV_CIRCULAR_BUFFER_H__
 
+#ifdef _WIN32
+#include <sys/types.h>
+#ifndef _STRUCT_IOVEC
+#define _STRUCT_IOVEC
+struct iovec {
+    void *iov_base;
+    size_t iov_len;
+};
+#endif
+#else
 #include <sys/uio.h>
 #include <sys/types.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {

@@ -89,7 +89,7 @@ hev_task_io_reactor_setup_event_fd_gen (HevTaskIOReactorSetupEvent *events,
     if (poll_events & POLLERR)
         reactor_events |= HEV_TASK_IO_REACTOR_EV_ER;
 
-    hev_task_io_reactor_setup_event_set (events, get_osfhandle (fd), op,
+    hev_task_io_reactor_setup_event_set (events, _get_osfhandle (fd), op,
                                          reactor_events, data);
 
     return 1;
@@ -101,7 +101,7 @@ hev_task_io_reactor_setup_event_whandle_gen (HevTaskIOReactorSetupEvent *events,
                                              HevTaskIOReactorOperation op,
                                              void *data)
 {
-    hev_task_io_reactor_setup_event_set (events, (long)handle, op, 0, data);
+    hev_task_io_reactor_setup_event_set (events, (intptr_t)handle, op, 0, data);
 
     return 1;
 }
