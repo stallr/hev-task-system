@@ -11,20 +11,17 @@
 #define __HEV_WINDOWS_API_H__
 
 /*
- * When building with MinGW (UCRT64/MSYS2), the standard Windows headers
- * already declare these functions with proper dllimport attributes.
- * Include them directly instead of re-declaring, which causes
- * "redeclared without dllimport attribute" errors with -Werror.
+ * Windows SDK headers already provide the socket/event/IOCP declarations we
+ * need. Reuse them for both MinGW and MSVC-style builds so the types keep the
+ * correct calling convention and dllimport attributes.
  */
-#if defined(__MINGW32__) || defined(__MINGW64__)
+#if !defined(WIN32_LEAN_AND_MEAN)
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <stdint.h>
 #include <winsock2.h>
 #include <windows.h>
 #include <io.h>
-#else
-#include <winerror.h>
-#include <handleapi.h>
-#include <minwinbase.h>
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,38 +51,22 @@ extern "C" {
 #define FD_CLOSE (1 << 5)
 #endif
 
-/* Only declare these manually when NOT using MinGW standard headers */
-#if !defined(__MINGW32__) && !defined(__MINGW64__)
-
-typedef struct _WSANETWORKEVENTS
+static inline intptr_t
+hev_windows_fd_to_wait_handle (int fd)
 {
-    int lNetworkEvents;
-    int iErrorCode[10];
-} WSANETWORKEVENTS, *LPWSANETWORKEVENTS;
+    int sock_type = 0;
+    int sock_type_len = sizeof (sock_type);
+    SOCKET sock = (SOCKET)(uintptr_t)fd;
 
-DWORD GetLastError ();
+    if (fd < 0)
+        return -1;
 
-HANDLE WINAPI CreateIoCompletionPort (HANDLE, HANDLE, ULONG_PTR, DWORD);
+    if (getsockopt (sock, SOL_SOCKET, SO_TYPE, (char *)&sock_type,
+                    &sock_type_len) == 0)
+        return (intptr_t)sock;
 
-BOOL GetQueuedCompletionStatus (HANDLE, LPDWORD, PULONG_PTR, LPOVERLAPPED *,
-                                DWORD);
-
-BOOL PostQueuedCompletionStatus (HANDLE, DWORD, ULONG_PTR, LPOVERLAPPED);
-
-HANDLE CreateEventA (LPSECURITY_ATTRIBUTES, BOOL, BOOL, LPCSTR);
-
-BOOL WINAPI WSACloseEvent (HANDLE hEvent);
-
-int WINAPI WSAEventSelect (UINT_PTR, HANDLE, long);
-
-int WINAPI WSAEnumNetworkEvents (UINT_PTR, HANDLE, LPWSANETWORKEVENTS);
-
-BOOL RegisterWaitForSingleObject (PHANDLE, HANDLE, WAITORTIMERCALLBACK, PVOID,
-                                  ULONG, ULONG);
-
-BOOL UnregisterWaitEx (HANDLE, HANDLE);
-
-#endif /* !__MINGW32__ && !__MINGW64__ */
+    return _get_osfhandle (fd);
+}
 
 #ifdef __cplusplus
 }

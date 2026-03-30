@@ -12,12 +12,35 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
 
 #include "kern/task/hev-task.h"
 #include "lib/io/basic/hev-task-io.h"
 #include "lib/misc/hev-compiler.h"
 
 #include "hev-task-io-socket.h"
+
+#ifdef _WIN32
+static int
+hev_task_io_socket_would_block (int fallback_errno)
+{
+    int err = WSAGetLastError ();
+
+    if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS || err == WSAEALREADY)
+        return 1;
+
+    if (err == WSAEISCONN)
+        errno = EISCONN;
+    else if (err != 0)
+        errno = err;
+    else
+        errno = fallback_errno;
+
+    return 0;
+}
+#endif
 
 EXPORT_SYMBOL int
 hev_task_io_socket_socket (int domain, int type, int protocol)
@@ -87,7 +110,14 @@ hev_task_io_socket_connect (int fd, const struct sockaddr *addr,
 retry:
     res = connect (fd, addr, addr_len);
     if (res < 0) {
-        if (errno == EINPROGRESS || errno == EALREADY) {
+        int would_block;
+
+#ifdef _WIN32
+        would_block = hev_task_io_socket_would_block (errno);
+#else
+        would_block = (errno == EINPROGRESS || errno == EALREADY);
+#endif
+        if (would_block) {
             if (yielder) {
                 if (yielder (HEV_TASK_WAITIO, yielder_data))
                     return -2;
@@ -115,7 +145,13 @@ retry:
 #else
     new_fd = accept4 (fd, addr, addr_len, SOCK_NONBLOCK);
 #endif
-    if (new_fd < 0 && errno == EAGAIN) {
+    if (new_fd < 0
+#ifdef _WIN32
+        && hev_task_io_socket_would_block (errno)
+#else
+        && errno == EAGAIN
+#endif
+    ) {
         if (yielder) {
             if (yielder (HEV_TASK_WAITIO, yielder_data))
                 return -2;
@@ -148,7 +184,13 @@ hev_task_io_socket_recv (int fd, void *buf, size_t len, int flags,
 
 retry:
     s = recv (fd, buf + size, len - size, flags & ~MSG_WAITALL);
-    if (s < 0 && errno == EAGAIN && !(flags & MSG_DONTWAIT)) {
+    if (s < 0
+#ifdef _WIN32
+        && hev_task_io_socket_would_block (errno)
+#else
+        && errno == EAGAIN
+#endif
+        && !(flags & MSG_DONTWAIT)) {
         if (yielder) {
             if (yielder (HEV_TASK_WAITIO, yielder_data))
                 return size ? size : -2;
@@ -180,7 +222,13 @@ hev_task_io_socket_send (int fd, const void *buf, size_t len, int flags,
 
 retry:
     s = send (fd, buf + size, len - size, flags & ~MSG_WAITALL);
-    if (s < 0 && errno == EAGAIN && !(flags & MSG_DONTWAIT)) {
+    if (s < 0
+#ifdef _WIN32
+        && hev_task_io_socket_would_block (errno)
+#else
+        && errno == EAGAIN
+#endif
+        && !(flags & MSG_DONTWAIT)) {
         if (yielder) {
             if (yielder (HEV_TASK_WAITIO, yielder_data))
                 return size ? size : -2;
@@ -214,7 +262,13 @@ hev_task_io_socket_recvfrom (int fd, void *buf, size_t len, int flags,
 retry:
     s = recvfrom (fd, buf + size, len - size, flags & ~MSG_WAITALL, addr,
                   addr_len);
-    if (s < 0 && errno == EAGAIN && !(flags & MSG_DONTWAIT)) {
+    if (s < 0
+#ifdef _WIN32
+        && hev_task_io_socket_would_block (errno)
+#else
+        && errno == EAGAIN
+#endif
+        && !(flags & MSG_DONTWAIT)) {
         if (yielder) {
             if (yielder (HEV_TASK_WAITIO, yielder_data))
                 return size ? size : -2;
@@ -248,7 +302,13 @@ hev_task_io_socket_sendto (int fd, const void *buf, size_t len, int flags,
 retry:
     s = sendto (fd, buf + size, len - size, flags & ~MSG_WAITALL, addr,
                 addr_len);
-    if (s < 0 && errno == EAGAIN && !(flags & MSG_DONTWAIT)) {
+    if (s < 0
+#ifdef _WIN32
+        && hev_task_io_socket_would_block (errno)
+#else
+        && errno == EAGAIN
+#endif
+        && !(flags & MSG_DONTWAIT)) {
         if (yielder) {
             if (yielder (HEV_TASK_WAITIO, yielder_data))
                 return size ? size : -2;

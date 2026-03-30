@@ -52,6 +52,12 @@ struct _HevTaskSystemContext
     struct timespec sched_time;
 
     jmp_buf kernel_context;
+#ifdef _WIN32
+    void *kernel_fiber;
+    int pending_event;
+    int has_pending_event;
+    int owns_kernel_fiber;
+#endif
 
     HevList all_tasks;
 };

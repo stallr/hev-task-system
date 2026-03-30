@@ -9,6 +9,10 @@
 
 #include <stdlib.h>
 #include <pthread.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <windows.h>
+#endif
 
 #include "lib/misc/hev-compiler.h"
 #include "lib/misc/hev-task-stack-detector.h"
@@ -27,6 +31,26 @@ pthread_key_creator (void)
 {
     pthread_key_create (&key, NULL);
 }
+
+#ifdef _WIN32
+static int
+hev_task_system_prepare_windows_fiber (HevTaskSystemContext *context)
+{
+    if (IsThreadAFiber ()) {
+        context->kernel_fiber = GetCurrentFiber ();
+        context->owns_kernel_fiber = 0;
+        return 0;
+    }
+
+    context->kernel_fiber =
+        ConvertThreadToFiberEx (NULL, FIBER_FLAG_FLOAT_SWITCH);
+    if (!context->kernel_fiber)
+        return -1;
+
+    context->owns_kernel_fiber = 1;
+    return 0;
+}
+#endif
 
 HevTaskSystemContext *
 hev_task_system_get_context (void)
@@ -77,8 +101,17 @@ hev_task_system_init (void)
     if (!context->stack_detector)
         goto free_timer;
 
+#ifdef _WIN32
+    if (hev_task_system_prepare_windows_fiber (context) < 0)
+        goto free_stack_detector;
+#endif
+
     return 0;
 
+#ifdef _WIN32
+free_stack_detector:
+    hev_task_stack_detector_destroy (context->stack_detector);
+#endif
 free_timer:
     hev_task_timer_destroy (context->timer);
 free_reactor:
@@ -102,6 +135,10 @@ hev_task_system_fini (void)
     hev_task_stack_detector_destroy (context->stack_detector);
     hev_task_timer_destroy (context->timer);
     hev_task_io_reactor_destroy (context->reactor);
+#ifdef _WIN32
+    if (context->owns_kernel_fiber)
+        ConvertFiberToThread ();
+#endif
     hev_free (context);
     hev_task_system_set_context (NULL);
 

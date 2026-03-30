@@ -30,6 +30,7 @@ struct _HevTask
     void *stack_bottom;
     HevTaskEntry entry;
     void *data;
+    int stack_size;
 
     uint64_t sched_key;
     HevRBTreeNode sched_node;
@@ -44,6 +45,9 @@ struct _HevTask
     HevTaskState state;
 
     jmp_buf context;
+#ifdef _WIN32
+    void *fiber;
+#endif
 
     HevListNode list_node;
 };

@@ -10,6 +10,7 @@
 #if defined(__MSYS__)
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdatomic.h>
 
@@ -27,7 +28,7 @@ struct _HevTaskIOReactorIOCPNode
     int ref_count;
     int events;
 
-    long handle;
+    intptr_t handle;
     void *data;
 
     void *ihandle;
@@ -100,7 +101,7 @@ hev_task_io_reactor_iocp_insert (HevTaskIOReactorIOCP *self,
 }
 
 static HevTaskIOReactorIOCPNode *
-hev_task_io_reactor_iocp_lookup (HevTaskIOReactorIOCP *self, long handle)
+hev_task_io_reactor_iocp_lookup (HevTaskIOReactorIOCP *self, intptr_t handle)
 {
     HevRBTreeNode *node = self->tree.root;
 
@@ -129,10 +130,11 @@ hev_task_io_reactor_iocp_handler (void *data, BOOLEAN fired)
     if (fired)
         return;
 
-    if (node->handle != (long)node->ehandle) {
+    if (node->handle != (intptr_t)node->ehandle) {
         WSANETWORKEVENTS events;
 
-        res = WSAEnumNetworkEvents (node->handle, node->ehandle, &events);
+        res = WSAEnumNetworkEvents ((SOCKET)node->handle, node->ehandle,
+                                    &events);
         if (res || !events.lNetworkEvents)
             return;
         node->events = events.lNetworkEvents;
@@ -167,7 +169,7 @@ hev_task_io_reactor_iocp_add (HevTaskIOReactorIOCP *self,
             goto free_node;
 
         events = event->events | HEV_TASK_IO_REACTOR_EV_ER;
-        res = WSAEventSelect (event->handle, node->ehandle, events);
+        res = WSAEventSelect ((SOCKET)event->handle, node->ehandle, events);
         if (res)
             goto free_event;
     } else {
@@ -189,7 +191,7 @@ hev_task_io_reactor_iocp_add (HevTaskIOReactorIOCP *self,
     return 0;
 
 free_event:
-    if (event->handle != (long)node->ehandle)
+    if (event->handle != (intptr_t)node->ehandle)
         WSACloseEvent (node->ehandle);
 free_node:
     hev_task_io_reactor_iocp_node_unref (node);
@@ -207,9 +209,10 @@ hev_task_io_reactor_iocp_mod (HevTaskIOReactorIOCP *self,
     if (!node)
         return -1;
 
-    if (node->handle != (long)node->ehandle && event->events) {
+    if (node->handle != (intptr_t)node->ehandle && event->events) {
         long events = event->events | HEV_TASK_IO_REACTOR_EV_ER;
-        int res = WSAEventSelect (node->handle, node->ehandle, events);
+        int res =
+            WSAEventSelect ((SOCKET)node->handle, node->ehandle, events);
         if (res)
             return -1;
     }
@@ -229,7 +232,7 @@ hev_task_io_reactor_iocp_del (HevTaskIOReactorIOCP *self,
         return -1;
 
     res = UnregisterWaitEx (node->whandle, INVALID_HANDLE_VALUE);
-    if (node->handle != (long)node->ehandle)
+    if (node->handle != (intptr_t)node->ehandle)
         res &= WSACloseEvent (node->ehandle);
     if (!res)
         return -1;

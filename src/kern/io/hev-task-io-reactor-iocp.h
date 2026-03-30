@@ -10,6 +10,7 @@
 #ifndef __HEV_TASK_IO_REACTOR_IOCP_H__
 #define __HEV_TASK_IO_REACTOR_IOCP_H__
 
+#include <stdint.h>
 #include <io.h>
 #include <poll.h>
 #include <pthread.h>
@@ -49,7 +50,7 @@ struct _HevTaskIOReactorSetupEvent
 {
     HevTaskIOReactorOperation op;
 
-    long handle;
+    intptr_t handle;
     int events;
     void *data;
 };
@@ -66,7 +67,8 @@ int hev_task_io_reactor_wait (HevTaskIOReactor *self,
 
 static inline void
 hev_task_io_reactor_setup_event_set (HevTaskIOReactorSetupEvent *event,
-                                     long handle, HevTaskIOReactorOperation op,
+                                     intptr_t handle,
+                                     HevTaskIOReactorOperation op,
                                      unsigned int events, void *data)
 {
     event->op = op;
@@ -77,7 +79,7 @@ hev_task_io_reactor_setup_event_set (HevTaskIOReactorSetupEvent *event,
 
 static inline int
 hev_task_io_reactor_setup_event_fd_gen (HevTaskIOReactorSetupEvent *events,
-                                        long fd, HevTaskIOReactorOperation op,
+                                        int fd, HevTaskIOReactorOperation op,
                                         unsigned int poll_events, void *data)
 {
     HevTaskIOReactorEvents reactor_events = 0;
@@ -89,7 +91,8 @@ hev_task_io_reactor_setup_event_fd_gen (HevTaskIOReactorSetupEvent *events,
     if (poll_events & POLLERR)
         reactor_events |= HEV_TASK_IO_REACTOR_EV_ER;
 
-    hev_task_io_reactor_setup_event_set (events, _get_osfhandle (fd), op,
+    hev_task_io_reactor_setup_event_set (events,
+                                         hev_windows_fd_to_wait_handle (fd), op,
                                          reactor_events, data);
 
     return 1;

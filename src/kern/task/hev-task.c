@@ -9,6 +9,10 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <windows.h>
+#endif
 
 #include "lib/misc/hev-compiler.h"
 #include "kern/core/hev-task-system-private.h"
@@ -34,6 +38,7 @@ hev_task_new (int stack_size)
 
     if (stack_size < 0)
         stack_size = HEV_TASK_STACK_SIZE;
+    self->stack_size = stack_size;
 
     self->stack = hev_task_stack_new (stack_size);
     if (!self->stack) {
@@ -67,6 +72,10 @@ hev_task_unref (HevTask *self)
 
     hev_list_del (&hev_task_system_get_context ()->all_tasks, &self->list_node);
 
+#ifdef _WIN32
+    if (self->fiber)
+        DeleteFiber (self->fiber);
+#endif
     hev_task_stack_destroy (self->stack);
     hev_free (self);
 }

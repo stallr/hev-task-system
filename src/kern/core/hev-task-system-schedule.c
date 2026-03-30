@@ -13,6 +13,11 @@
 #endif
 
 #include <stdlib.h>
+#ifdef _WIN32
+#include <stdio.h>
+#include <winsock2.h>
+#include <windows.h>
+#endif
 
 #include "hev-task-system.h"
 #include "hev-task-system-private.h"
@@ -20,6 +25,22 @@
 #include "kern/task/hev-task-executer.h"
 #include "kern/io/hev-task-io-reactor.h"
 #include "lib/misc/hev-compiler.h"
+
+#ifdef _WIN32
+static VOID CALLBACK
+hev_task_system_task_fiber_main (void *data)
+{
+    HevTask *task = data;
+
+    task->entry (task->data);
+
+    if (task->joiner)
+        hev_task_wakeup (task->joiner);
+
+    hev_task_system_kill_current_task ();
+    abort ();
+}
+#endif
 
 static inline void
 hev_task_system_get_clock_time (struct timespec *ts)
@@ -200,6 +221,49 @@ hev_task_system_schedule (HevTaskYieldType type)
 {
     HevTaskSystemContext *ctx = hev_task_system_get_context ();
 
+#ifdef _WIN32
+    if (ctx->current_task) {
+        ctx->pending_event = type;
+        ctx->has_pending_event = 1;
+        SwitchToFiber (ctx->kernel_fiber);
+        return;
+    }
+
+    for (;;) {
+        if (ctx->has_pending_event) {
+            switch (ctx->pending_event) {
+            case HEV_TASK_SCHED_SWITCH:
+                hev_task_system_update_sched_key (ctx);
+                hev_task_system_reinsert_current_task (ctx);
+                break;
+            case HEV_TASK_SCHED_WAITIO:
+                hev_task_system_update_sched_key (ctx);
+                hev_task_system_remove_current_task (ctx, HEV_TASK_WAITING);
+                break;
+            case HEV_TASK_SCHED_REMOVE:
+                hev_task_system_remove_current_task (ctx, HEV_TASK_STOPPED);
+                break;
+            }
+            ctx->has_pending_event = 0;
+        }
+
+        /* All tasks exited, Bye! */
+        if (ctx->total_task_count == 0) {
+            ctx->current_task = NULL;
+            return;
+        }
+
+        /* pick a task */
+        hev_task_system_pick_current_task (ctx);
+
+        /* update schedule time */
+        hev_task_system_update_sched_time (ctx);
+
+        /* switch to task */
+        SwitchToFiber (ctx->current_task->fiber);
+    }
+#endif
+
     if (ctx->current_task) {
         /*
          * NOTE: in task context
@@ -259,7 +323,20 @@ hev_task_system_run_new_task (HevTask *task)
 {
     HevTaskSystemContext *ctx = hev_task_system_get_context ();
 
+#ifdef _WIN32
+    if (!task->fiber) {
+        task->fiber = CreateFiberEx (0, (SIZE_T)task->stack_size,
+                                     FIBER_FLAG_FLOAT_SWITCH,
+                                     hev_task_system_task_fiber_main, task);
+        if (!task->fiber) {
+            fprintf (stderr, "CreateFiberEx failed: %lu\n",
+                     (unsigned long)GetLastError ());
+            abort ();
+        }
+    }
+#else
     hev_task_execute (task, hev_task_executer);
+#endif
 
     if (ctx->current_task)
         task->sched_key += hev_task_system_get_min_sched_key (ctx);
@@ -273,9 +350,16 @@ hev_task_system_kill_current_task (void)
 {
     HevTaskSystemContext *ctx = hev_task_system_get_context ();
 
+#ifdef _WIN32
+    ctx->pending_event = HEV_TASK_SCHED_REMOVE;
+    ctx->has_pending_event = 1;
+    SwitchToFiber (ctx->kernel_fiber);
+    abort ();
+#else
     /*
      * NOTE: remove current task in kernel context, because current
      * task stack may be freed.
      */
     _longjmp (ctx->kernel_context, HEV_TASK_SCHED_REMOVE);
+#endif
 }
