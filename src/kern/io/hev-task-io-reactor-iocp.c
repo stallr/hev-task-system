@@ -18,6 +18,7 @@
 #include "mem/api/hev-memory-allocator-api.h"
 
 #include "kern/io/hev-task-io-reactor.h"
+#include "kern/task/hev-task-private.h"
 
 typedef struct _HevTaskIOReactorIOCPNode HevTaskIOReactorIOCPNode;
 
@@ -27,9 +28,11 @@ struct _HevTaskIOReactorIOCPNode
 
     int ref_count;
     int events;
+    int pending;
 
     intptr_t handle;
     void *data;
+    HevTask *task_ref;
 
     void *ihandle;
     void *ehandle;
@@ -52,6 +55,20 @@ hev_task_io_reactor_iocp_node_new (void)
     return node;
 }
 
+static HevTask *
+hev_task_io_reactor_iocp_node_resolve_task_ref (void *data)
+{
+    HevTaskSchedEntity *sched_entity = data;
+
+    if (!sched_entity || !sched_entity->task)
+        return NULL;
+
+    if (&sched_entity->task->sched_entity != sched_entity)
+        return NULL;
+
+    return hev_task_ref (sched_entity->task);
+}
+
 static void
 hev_task_io_reactor_iocp_node_ref (HevTaskIOReactorIOCPNode *node)
 {
@@ -71,6 +88,8 @@ hev_task_io_reactor_iocp_node_unref (HevTaskIOReactorIOCPNode *node)
         return;
 
     assert (rc >= 1);
+    if (node->task_ref)
+        hev_task_unref (node->task_ref);
     free (node);
 }
 
@@ -125,9 +144,13 @@ static VOID CALLBACK
 hev_task_io_reactor_iocp_handler (void *data, BOOLEAN fired)
 {
     HevTaskIOReactorIOCPNode *node = data;
+    atomic_int *pendingp = (atomic_int *)&node->pending;
     int res;
 
     if (fired)
+        return;
+
+    if (atomic_exchange_explicit (pendingp, 1, memory_order_acq_rel))
         return;
 
     if (node->handle != (intptr_t)node->ehandle) {
@@ -135,15 +158,19 @@ hev_task_io_reactor_iocp_handler (void *data, BOOLEAN fired)
 
         res = WSAEnumNetworkEvents ((SOCKET)node->handle, node->ehandle,
                                     &events);
-        if (res || !events.lNetworkEvents)
+        if (res || !events.lNetworkEvents) {
+            atomic_store_explicit (pendingp, 0, memory_order_release);
             return;
+        }
         node->events = events.lNetworkEvents;
     }
 
     hev_task_io_reactor_iocp_node_ref (node);
     res = PostQueuedCompletionStatus (node->ihandle, 1, 0, (LPOVERLAPPED)node);
-    if (!res)
+    if (!res) {
+        atomic_store_explicit (pendingp, 0, memory_order_release);
         hev_task_io_reactor_iocp_node_unref (node);
+    }
 }
 
 static int
@@ -154,8 +181,9 @@ hev_task_io_reactor_iocp_add (HevTaskIOReactorIOCP *self,
     int res;
 
     node = hev_task_io_reactor_iocp_lookup (self, event->handle);
-    if (node)
+    if (node) {
         goto exit;
+    }
 
     node = hev_task_io_reactor_iocp_node_new ();
     if (!node)
@@ -179,6 +207,7 @@ hev_task_io_reactor_iocp_add (HevTaskIOReactorIOCP *self,
     node->data = event->data;
     node->handle = event->handle;
     node->ihandle = self->base.handle;
+    node->task_ref = hev_task_io_reactor_iocp_node_resolve_task_ref (event->data);
 
     res = RegisterWaitForSingleObject (&node->whandle, node->ehandle,
                                        hev_task_io_reactor_iocp_handler, node,
@@ -186,10 +215,14 @@ hev_task_io_reactor_iocp_add (HevTaskIOReactorIOCP *self,
     if (!res)
         goto free_event;
 
-    hev_task_io_reactor_iocp_insert (self, node);
+    res = hev_task_io_reactor_iocp_insert (self, node);
+    if (res < 0)
+        goto free_wait;
 
     return 0;
 
+free_wait:
+    UnregisterWaitEx (node->whandle, INVALID_HANDLE_VALUE);
 free_event:
     if (event->handle != (intptr_t)node->ehandle)
         WSACloseEvent (node->ehandle);
@@ -333,9 +366,13 @@ retry:
     }
 
     node = (HevTaskIOReactorIOCPNode *)overlap;
-    events->events = node->events;
-    events->data = node->data;
     res = node->ehandle && node->whandle;
+    if (res) {
+        events->events = node->events;
+        events->data = node->data;
+        atomic_store_explicit ((atomic_int *)&node->pending, 0,
+                               memory_order_release);
+    }
     hev_task_io_reactor_iocp_node_unref (node);
 
     if (!res)

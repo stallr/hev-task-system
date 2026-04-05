@@ -122,8 +122,13 @@ _hev_task_system_insert_task (HevRBTreeCached *tree, HevTask *task)
 static inline void
 hev_task_system_insert_task (HevTaskSystemContext *ctx, HevTask *task)
 {
+    if (task->in_running_tree) {
+        return;
+    }
+
     task->state = HEV_TASK_RUNNING;
     task->priority = task->next_priority;
+    task->in_running_tree = 1;
 
     _hev_task_system_insert_task (&ctx->running_tasks, task);
 
@@ -138,7 +143,9 @@ hev_task_system_reinsert_current_task (HevTaskSystemContext *ctx)
     task->priority = task->next_priority;
 
     hev_rbtree_cached_erase (&ctx->running_tasks, &task->sched_node);
+    task->in_running_tree = 0;
     _hev_task_system_insert_task (&ctx->running_tasks, task);
+    task->in_running_tree = 1;
 }
 
 static inline void
@@ -150,6 +157,7 @@ hev_task_system_remove_current_task (HevTaskSystemContext *ctx,
     task->state = state;
 
     hev_rbtree_cached_erase (&ctx->running_tasks, &task->sched_node);
+    task->in_running_tree = 0;
 
     ctx->running_task_count--;
 
@@ -166,7 +174,7 @@ hev_task_system_wakeup_task_with_context (HevTaskSystemContext *ctx,
                                           HevTask *task)
 {
     /* skip to wake up this task that is already in running */
-    if (task->state == HEV_TASK_RUNNING)
+    if (task->state == HEV_TASK_RUNNING || task->in_running_tree)
         return;
 
     if (task->state == HEV_TASK_STOPPED)
