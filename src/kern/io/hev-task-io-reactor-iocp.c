@@ -37,6 +37,7 @@ struct _HevTaskIOReactorIOCPNode
     void *ihandle;
     void *ehandle;
     void *whandle;
+    long registered_events;
 };
 
 static HevTaskIOReactorIOCPNode *
@@ -200,6 +201,7 @@ hev_task_io_reactor_iocp_add (HevTaskIOReactorIOCP *self,
         res = WSAEventSelect ((SOCKET)event->handle, node->ehandle, events);
         if (res)
             goto free_event;
+        node->registered_events = events;
     } else {
         node->ehandle = (void *)event->handle;
     }
@@ -244,10 +246,15 @@ hev_task_io_reactor_iocp_mod (HevTaskIOReactorIOCP *self,
 
     if (node->handle != (intptr_t)node->ehandle && event->events) {
         long events = event->events | HEV_TASK_IO_REACTOR_EV_ER;
-        int res =
-            WSAEventSelect ((SOCKET)node->handle, node->ehandle, events);
+        int res;
+
+        if (events == node->registered_events)
+            return 0;
+
+        res = WSAEventSelect ((SOCKET)node->handle, node->ehandle, events);
         if (res)
             return -1;
+        node->registered_events = events;
     }
 
     return 0;
