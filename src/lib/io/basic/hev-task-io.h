@@ -30,6 +30,11 @@ extern "C" {
 #endif
 
 typedef int (*HevTaskIOYielder) (HevTaskYieldType type, void *data);
+typedef void (*HevTaskIOSpliceProgress) (int direction, size_t bytes,
+                                         void *data);
+
+#define HEV_TASK_IO_SPLICE_A_TO_B 1
+#define HEV_TASK_IO_SPLICE_B_TO_A 2
 
 /**
  * hev_task_io_open:
@@ -199,6 +204,29 @@ ssize_t hev_task_io_writev (int fd, const struct iovec *iov, int iovcnt,
 void hev_task_io_splice (int fd_a_i, int fd_a_o, int fd_b_i, int fd_b_o,
                          size_t buf_size, HevTaskIOYielder yielder,
                          void *yielder_data);
+
+/**
+ * hev_task_io_splice_with_progress:
+ * @fd_a_i: file descriptor input A
+ * @fd_a_o: file descriptor output A
+ * @fd_b_i: file descriptor input B
+ * @fd_b_o: file descriptor output B
+ * @buf_size: buffer size
+ * @yielder: a #HevTaskIOYielder
+ * @yielder_data: yielder user data
+ * @progress: directional payload progress callback
+ * @progress_data: progress user data
+ *
+ * Same as hev_task_io_splice(), but invokes @progress after payload bytes have
+ * been written to the destination side. Direction is
+ * HEV_TASK_IO_SPLICE_A_TO_B or HEV_TASK_IO_SPLICE_B_TO_A.
+ *
+ * Since: 4.8.0
+ */
+void hev_task_io_splice_with_progress (
+    int fd_a_i, int fd_a_o, int fd_b_i, int fd_b_o, size_t buf_size,
+    HevTaskIOYielder yielder, void *yielder_data,
+    HevTaskIOSpliceProgress progress, void *progress_data);
 
 #ifdef __cplusplus
 }

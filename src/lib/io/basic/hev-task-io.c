@@ -43,6 +43,14 @@ struct _HevTaskIOSplicer
 #endif /* !ENABLE_IO_SPLICE_SYSCALL */
 };
 
+static void
+task_io_splice_progress (HevTaskIOSpliceProgress progress, int direction,
+                         size_t bytes, void *data)
+{
+    if (progress && bytes)
+        progress (direction, bytes, data);
+}
+
 EXPORT_SYMBOL int
 hev_task_io_open (const char *pathname, int flags, ...)
 {
@@ -250,7 +258,9 @@ task_io_splicer_fini (HevTaskIOSplicer *self)
 }
 
 static int
-task_io_splice (HevTaskIOSplicer *self, int fd_in, int fd_out)
+task_io_splice (HevTaskIOSplicer *self, int fd_in, int fd_out,
+                HevTaskIOSpliceProgress progress, int direction,
+                void *progress_data)
 {
     int res;
     ssize_t s;
@@ -278,6 +288,7 @@ task_io_splice (HevTaskIOSplicer *self, int fd_in, int fd_out)
         } else {
             res = 1;
             self->wlen -= s;
+            task_io_splice_progress (progress, direction, s, progress_data);
         }
     } else if (res < 0) {
         shutdown (fd_out, SHUT_WR);
@@ -306,7 +317,9 @@ task_io_splicer_fini (HevTaskIOSplicer *self)
 }
 
 static int
-task_io_splice (HevTaskIOSplicer *self, int fd_in, int fd_out)
+task_io_splice (HevTaskIOSplicer *self, int fd_in, int fd_out,
+                HevTaskIOSpliceProgress progress, int direction,
+                void *progress_data)
 {
     struct iovec iov[2];
     int res = 1, iovc;
@@ -335,6 +348,7 @@ task_io_splice (HevTaskIOSplicer *self, int fd_in, int fd_out)
         } else {
             res = 1;
             hev_circular_buffer_read_finish (self->buf, s);
+            task_io_splice_progress (progress, direction, s, progress_data);
         }
     } else if (res < 0) {
         shutdown (fd_out, SHUT_WR);
@@ -346,9 +360,12 @@ task_io_splice (HevTaskIOSplicer *self, int fd_in, int fd_out)
 #endif /* !ENABLE_IO_SPLICE_SYSCALL */
 
 EXPORT_SYMBOL void
-hev_task_io_splice (int fd_a_i, int fd_a_o, int fd_b_i, int fd_b_o,
-                    size_t buf_size, HevTaskIOYielder yielder,
-                    void *yielder_data)
+hev_task_io_splice_with_progress (int fd_a_i, int fd_a_o, int fd_b_i,
+                                  int fd_b_o, size_t buf_size,
+                                  HevTaskIOYielder yielder,
+                                  void *yielder_data,
+                                  HevTaskIOSpliceProgress progress,
+                                  void *progress_data)
 {
     HevTaskIOSplicer splicer_f;
     HevTaskIOSplicer splicer_b;
@@ -364,9 +381,13 @@ hev_task_io_splice (int fd_a_i, int fd_a_o, int fd_b_i, int fd_b_o,
         HevTaskYieldType type;
 
         if (res_f >= 0)
-            res_f = task_io_splice (&splicer_f, fd_a_i, fd_b_o);
+            res_f = task_io_splice (&splicer_f, fd_a_i, fd_b_o, progress,
+                                    HEV_TASK_IO_SPLICE_A_TO_B,
+                                    progress_data);
         if (res_b >= 0)
-            res_b = task_io_splice (&splicer_b, fd_b_i, fd_a_o);
+            res_b = task_io_splice (&splicer_b, fd_b_i, fd_a_o, progress,
+                                    HEV_TASK_IO_SPLICE_B_TO_A,
+                                    progress_data);
 
         if (res_f > 0 || res_b > 0)
             type = HEV_TASK_YIELD;
@@ -386,4 +407,14 @@ hev_task_io_splice (int fd_a_i, int fd_a_o, int fd_b_i, int fd_b_o,
     task_io_splicer_fini (&splicer_b);
 exit:
     task_io_splicer_fini (&splicer_f);
+}
+
+EXPORT_SYMBOL void
+hev_task_io_splice (int fd_a_i, int fd_a_o, int fd_b_i, int fd_b_o,
+                    size_t buf_size, HevTaskIOYielder yielder,
+                    void *yielder_data)
+{
+    hev_task_io_splice_with_progress (fd_a_i, fd_a_o, fd_b_i, fd_b_o,
+                                      buf_size, yielder, yielder_data, NULL,
+                                      NULL);
 }
