@@ -22,6 +22,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <io.h>
+#include <sys/socket.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,15 +55,13 @@ extern "C" {
 static inline intptr_t
 hev_windows_fd_to_wait_handle (int fd)
 {
-    int sock_type = 0;
-    int sock_type_len = sizeof (sock_type);
-    SOCKET sock = (SOCKET)(uintptr_t)fd;
+    uintptr_t sock;
 
     if (fd < 0)
         return -1;
 
-    if (getsockopt (sock, SOL_SOCKET, SO_TYPE, (char *)&sock_type,
-                    &sock_type_len) == 0)
+    sock = hev_windows_socket_raw (fd);
+    if (sock != (uintptr_t)INVALID_SOCKET)
         return (intptr_t)sock;
 
     return _get_osfhandle (fd);

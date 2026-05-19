@@ -202,19 +202,19 @@ hev_task_sleep (unsigned int milliseconds)
     return hev_task_timer_wait (ctx->timer, milliseconds, ctx->current_task);
 }
 
-EXPORT_SYMBOL void
+EXPORT_SYMBOL int
 hev_task_run (HevTask *self, HevTaskEntry entry, void *data)
 {
     /* Skip to run task that already running */
     if (self->state != HEV_TASK_STOPPED)
-        return;
+        return 0;
 
     self->entry = entry;
     self->data = data;
     self->priority = self->next_priority;
     self->sched_key = self->next_priority;
 
-    hev_task_system_run_new_task (self);
+    return hev_task_system_run_new_task (self);
 }
 
 EXPORT_SYMBOL void
@@ -237,6 +237,36 @@ hev_task_join (HevTask *task)
 
         hev_task_wakeup (task);
         hev_task_yield (HEV_TASK_WAITIO);
+    }
+
+    return 0;
+}
+
+EXPORT_SYMBOL int
+hev_task_join_for (HevTask *task, unsigned int timeout_ms)
+{
+    unsigned int remaining = timeout_ms;
+
+    if (task->joiner)
+        return -1;
+
+    task->joiner = hev_task_self ();
+
+    for (;;) {
+        unsigned int slice;
+
+        if (hev_task_get_state (task) == HEV_TASK_STOPPED)
+            break;
+
+        if (!remaining) {
+            task->joiner = NULL;
+            return -2;
+        }
+
+        slice = remaining < 20 ? remaining : 20;
+        hev_task_wakeup (task);
+        hev_task_sleep (slice);
+        remaining -= slice;
     }
 
     return 0;

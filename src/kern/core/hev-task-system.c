@@ -148,6 +148,15 @@ hev_task_system_fini (void)
 }
 
 EXPORT_SYMBOL void
+hev_task_system_request_shutdown (void)
+{
+    HevTaskSystemContext *context = hev_task_system_get_context ();
+
+    if (context)
+        context->shutdown_requested = 1;
+}
+
+EXPORT_SYMBOL void
 hev_task_system_run (void)
 {
     hev_task_system_schedule (HEV_TASK_RUN_SCHEDULER);

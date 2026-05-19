@@ -39,6 +39,15 @@ int hev_task_system_init (void);
 void hev_task_system_fini (void);
 
 /**
+ * hev_task_system_request_shutdown:
+ *
+ * Request the scheduler to return even if tasks are still present.
+ *
+ * Since: 5.10.1
+ */
+void hev_task_system_request_shutdown (void);
+
+/**
  * hev_task_system_run:
  *
  * Run the task system.

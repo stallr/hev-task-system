@@ -272,7 +272,7 @@ unsigned int hev_task_usleep (unsigned int microseconds);
  *
  * Since: 1.0
  */
-void hev_task_run (HevTask *self, HevTaskEntry entry, void *data);
+int hev_task_run (HevTask *self, HevTaskEntry entry, void *data);
 
 /**
  * hev_task_exit:
@@ -294,6 +294,20 @@ void hev_task_exit (void);
  * Since: 5.2.6
  */
 int hev_task_join (HevTask *task);
+
+/**
+ * hev_task_join_for:
+ * @task: a #HevTask
+ * @timeout_ms: maximum wait time in milliseconds
+ *
+ * Join with a terminated task, but return if the task does not stop before
+ * @timeout_ms expires.
+ *
+ * Returns: 0 on success, -1 when another joiner exists, -2 on timeout.
+ *
+ * Since: 5.2.6
+ */
+int hev_task_join_for (HevTask *task, unsigned int timeout_ms);
 
 /**
  * hev_task_get_data:

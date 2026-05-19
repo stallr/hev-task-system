@@ -255,6 +255,11 @@ hev_task_system_schedule (HevTaskYieldType type)
             ctx->has_pending_event = 0;
         }
 
+        if (ctx->shutdown_requested) {
+            ctx->current_task = NULL;
+            return;
+        }
+
         /* All tasks exited, Bye! */
         if (ctx->total_task_count == 0) {
             ctx->current_task = NULL;
@@ -301,6 +306,11 @@ hev_task_system_schedule (HevTaskYieldType type)
         }
     }
 
+    if (ctx->shutdown_requested) {
+        ctx->current_task = NULL;
+        return;
+    }
+
     /* All tasks exited, Bye! */
     if (ctx->total_task_count == 0) {
         ctx->current_task = NULL;
@@ -326,7 +336,7 @@ hev_task_system_wakeup_task (HevTask *task)
     hev_task_system_wakeup_task_with_context (ctx, task);
 }
 
-void
+int
 hev_task_system_run_new_task (HevTask *task)
 {
     HevTaskSystemContext *ctx = hev_task_system_get_context ();
@@ -339,7 +349,8 @@ hev_task_system_run_new_task (HevTask *task)
         if (!task->fiber) {
             fprintf (stderr, "CreateFiberEx failed: %lu\n",
                      (unsigned long)GetLastError ());
-            abort ();
+            task->state = HEV_TASK_STOPPED;
+            return -1;
         }
     }
 #else
@@ -351,6 +362,7 @@ hev_task_system_run_new_task (HevTask *task)
 
     hev_task_system_insert_task (ctx, task);
     ctx->total_task_count++;
+    return 0;
 }
 
 void

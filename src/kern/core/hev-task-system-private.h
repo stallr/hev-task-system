@@ -48,6 +48,7 @@ struct _HevTaskSystemContext
 
     HevTask *current_task;
     HevRBTreeCached running_tasks;
+    int shutdown_requested;
 
     struct timespec sched_time;
 
@@ -64,7 +65,7 @@ struct _HevTaskSystemContext
 
 void hev_task_system_schedule (HevTaskYieldType type);
 void hev_task_system_wakeup_task (HevTask *task);
-void hev_task_system_run_new_task (HevTask *task);
+int hev_task_system_run_new_task (HevTask *task);
 void hev_task_system_kill_current_task (void);
 
 void hev_task_system_wakeup_task_with_context (HevTaskSystemContext *ctx,
