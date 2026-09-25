@@ -97,23 +97,29 @@ hev_task_system_init (void)
     if (!context->timer)
         goto free_reactor;
 
+#ifdef ENABLE_STACK_OVERFLOW_DETECTOR
     context->stack_detector = hev_task_stack_detector_new ();
     if (!context->stack_detector)
         goto free_timer;
+#endif
 
 #ifdef _WIN32
-    if (hev_task_system_prepare_windows_fiber (context) < 0)
-        goto free_stack_detector;
+    /* UNPINNED: no host test reaches this Windows fiber failure unwind;
+     * the detector is freed here only when ENABLE_STACK_OVERFLOW_DETECTOR
+     * created one. */
+    if (hev_task_system_prepare_windows_fiber (context) < 0) {
+        if (context->stack_detector)
+            hev_task_stack_detector_destroy (context->stack_detector);
+        goto free_timer;
+    }
 #endif
 
     return 0;
 
-#ifdef _WIN32
-free_stack_detector:
-    hev_task_stack_detector_destroy (context->stack_detector);
-#endif
+#if defined(ENABLE_STACK_OVERFLOW_DETECTOR) || defined(_WIN32)
 free_timer:
     hev_task_timer_destroy (context->timer);
+#endif
 free_reactor:
     hev_task_io_reactor_destroy (context->reactor);
 rest_context:
@@ -132,7 +138,8 @@ hev_task_system_fini (void)
 
     if (context->dns_proxy)
         hev_task_dns_proxy_destroy (context->dns_proxy);
-    hev_task_stack_detector_destroy (context->stack_detector);
+    if (context->stack_detector)
+        hev_task_stack_detector_destroy (context->stack_detector);
     hev_task_timer_destroy (context->timer);
     hev_task_io_reactor_destroy (context->reactor);
 #ifdef _WIN32
