@@ -9,6 +9,7 @@
 
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -42,6 +43,37 @@ hev_task_io_socket_would_block (int fallback_errno)
 }
 #endif
 
+/*
+ * Sockets created here are close-on-exec, so a child process the host
+ * application spawns does not inherit them and keep a port open after the
+ * application closed it. Where the platform has SOCK_CLOEXEC the flag is
+ * atomic with socket()/socketpair()/accept4(); elsewhere (macOS) it is set
+ * right after creation, like the non-blocking flag.
+ *
+ * UNPINNED (macOS window): between creation and the fcntl a fork+exec on
+ * another thread still inherits the fd; no test can hold a thread there.
+ *
+ * UNPINNED (fcntl failure): the fallback closes the fd (both for a
+ * socketpair) and returns -3 (socket) or -4 (socketpair, accept), with errno
+ * left at fcntl's. No test can make fcntl fail on a just-created fd.
+ *
+ * Windows is not changed: sockets come from the platform compat layer.
+ */
+#if !defined(SOCK_CLOEXEC) && !defined(_WIN32) && defined(FD_CLOEXEC)
+static int
+hev_task_io_socket_set_cloexec (int fd)
+{
+    int flags;
+
+    flags = fcntl (fd, F_GETFD);
+    if (flags < 0)
+        return -1;
+
+    return fcntl (fd, F_SETFD, flags | FD_CLOEXEC);
+}
+#define HEV_TASK_IO_SOCKET_SET_CLOEXEC 1
+#endif
+
 EXPORT_SYMBOL int
 hev_task_io_socket_socket (int domain, int type, int protocol)
 {
@@ -49,6 +81,9 @@ hev_task_io_socket_socket (int domain, int type, int protocol)
 
 #ifdef SOCK_NONBLOCK
     type |= SOCK_NONBLOCK;
+#endif
+#ifdef SOCK_CLOEXEC
+    type |= SOCK_CLOEXEC;
 #endif
 
     fd = socket (domain, type, protocol);
@@ -63,6 +98,12 @@ hev_task_io_socket_socket (int domain, int type, int protocol)
         }
     }
 #endif
+#ifdef HEV_TASK_IO_SOCKET_SET_CLOEXEC
+    if (fd >= 0 && hev_task_io_socket_set_cloexec (fd) < 0) {
+        close (fd);
+        return -3;
+    }
+#endif
 
     return fd;
 }
@@ -75,6 +116,9 @@ hev_task_io_socket_socketpair (int domain, int type, int protocol,
 
 #ifdef SOCK_NONBLOCK
     type |= SOCK_NONBLOCK;
+#endif
+#ifdef SOCK_CLOEXEC
+    type |= SOCK_CLOEXEC;
 #endif
 
     res = socketpair (domain, type, protocol, socket_vector);
@@ -94,6 +138,14 @@ hev_task_io_socket_socketpair (int domain, int type, int protocol,
             close (socket_vector[1]);
             return -3;
         }
+    }
+#endif
+#ifdef HEV_TASK_IO_SOCKET_SET_CLOEXEC
+    if (res >= 0 && (hev_task_io_socket_set_cloexec (socket_vector[0]) < 0 ||
+                     hev_task_io_socket_set_cloexec (socket_vector[1]) < 0)) {
+        close (socket_vector[0]);
+        close (socket_vector[1]);
+        return -4;
     }
 #endif
 
@@ -142,6 +194,8 @@ hev_task_io_socket_accept (int fd, struct sockaddr *addr, socklen_t *addr_len,
 retry:
 #ifndef SOCK_NONBLOCK
     new_fd = accept (fd, addr, addr_len);
+#elif defined(SOCK_CLOEXEC)
+    new_fd = accept4 (fd, addr, addr_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
 #else
     new_fd = accept4 (fd, addr, addr_len, SOCK_NONBLOCK);
 #endif
@@ -169,6 +223,14 @@ retry:
             close (new_fd);
             return -3;
         }
+    }
+#endif
+#ifdef HEV_TASK_IO_SOCKET_SET_CLOEXEC
+    /* UNPINNED (fcntl failure): the errno reaches an accept loop; see the
+     * note above hev_task_io_socket_set_cloexec. */
+    if (new_fd >= 0 && hev_task_io_socket_set_cloexec (new_fd) < 0) {
+        close (new_fd);
+        return -4;
     }
 #endif
 
