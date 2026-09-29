@@ -45,30 +45,19 @@ hev_task_io_socket_would_block (int fallback_errno)
 
 /*
  * Sockets created here are close-on-exec, so a child process the host
- * application spawns (for example a route or network-manager command) does
- * not inherit them and keep a listener port or a relay socket open after the
+ * application spawns does not inherit them and keep a port open after the
  * application closed it. Where the platform has SOCK_CLOEXEC the flag is
  * atomic with socket()/socketpair()/accept4(); elsewhere (macOS) it is set
  * right after creation, like the non-blocking flag.
  *
- * UNPINNED (macOS, iOS window): between creation and the fcntl a fork+exec
- * on another thread still inherits the fd; no test can hold a thread there.
+ * UNPINNED (macOS window): between creation and the fcntl a fork+exec on
+ * another thread still inherits the fd; no test can hold a thread there.
  *
  * UNPINNED (fcntl failure): the fallback closes the fd (both for a
  * socketpair) and returns -3 (socket) or -4 (socketpair, accept), with errno
- * left at fcntl's. fcntl on a just-created fd has no failure a test can
- * inject. POSIX gives EBADF or EINVAL for F_GETFD/F_SETFD, and
- * hev-socks5-tunnel's accept loop reads both as listener shutdown
- * (listener_accept_error_is_shutdown): that accept task would log, close its
- * binding and republish the listener status instead of accepting again.
+ * left at fcntl's. No test can make fcntl fail on a just-created fd.
  *
- * UNPINNED (Windows): not changed. Windows sockets come from the compat layer
- * (cev-engine compat/windows posix_socket_compat.c, plain socket()), whose
- * handles stay inheritable. The dataplane agent that runs hev there starts no
- * child from its own Rust or C production code (its only Command::new that
- * compiles for Windows is in a test; hev_exec_run is a no-op in the Windows
- * compat), but the in-process mihomo's restart and updater exec paths were
- * not audited.
+ * Windows is not changed: sockets come from the platform compat layer.
  */
 #if !defined(SOCK_CLOEXEC) && !defined(_WIN32) && defined(FD_CLOEXEC)
 static int
