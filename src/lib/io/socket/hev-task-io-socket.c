@@ -49,9 +49,25 @@ hev_task_io_socket_would_block (int fallback_errno)
  * not inherit them and keep a listener port or a relay socket open after the
  * application closed it. Where the platform has SOCK_CLOEXEC the flag is
  * atomic with socket()/socketpair()/accept4(); elsewhere (macOS) it is set
- * right after creation, like the non-blocking flag, which leaves the same
- * short window against a concurrent fork+exec. Windows handles use their own
- * inheritance flag and are not changed here.
+ * right after creation, like the non-blocking flag.
+ *
+ * UNPINNED (macOS, iOS window): between creation and the fcntl a fork+exec
+ * on another thread still inherits the fd; no test can hold a thread there.
+ *
+ * UNPINNED (fcntl failure): the fallback closes the fd (both for a
+ * socketpair) and returns -3 (socket) or -4 (socketpair, accept), with errno
+ * left at fcntl's. fcntl on a just-created fd has no failure a test can
+ * inject. POSIX gives EBADF or EINVAL for F_GETFD/F_SETFD, and
+ * hev-socks5-tunnel's accept loop reads both as listener shutdown
+ * (listener_accept_error_is_shutdown): that accept task would log, close its
+ * binding and republish the listener status instead of accepting again.
+ *
+ * UNPINNED (Windows): not changed. Windows sockets come from the compat layer
+ * (cev-engine compat/windows posix_socket_compat.c, plain socket()), whose
+ * handles stay inheritable. The dataplane agent that runs hev there starts no
+ * child from its Rust or C production code (the one Command::new is in a
+ * test; hev_exec_run is a no-op in the Windows compat), but the in-process
+ * mihomo's restart and updater exec paths were not audited.
  */
 #if !defined(SOCK_CLOEXEC) && !defined(_WIN32) && defined(FD_CLOEXEC)
 static int
@@ -220,6 +236,8 @@ retry:
     }
 #endif
 #ifdef HEV_TASK_IO_SOCKET_SET_CLOEXEC
+    /* UNPINNED (fcntl failure): the errno reaches an accept loop; see the
+     * note above hev_task_io_socket_set_cloexec. */
     if (new_fd >= 0 && hev_task_io_socket_set_cloexec (new_fd) < 0) {
         close (new_fd);
         return -4;
