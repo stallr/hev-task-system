@@ -65,9 +65,10 @@ hev_task_io_socket_would_block (int fallback_errno)
  * UNPINNED (Windows): not changed. Windows sockets come from the compat layer
  * (cev-engine compat/windows posix_socket_compat.c, plain socket()), whose
  * handles stay inheritable. The dataplane agent that runs hev there starts no
- * child from its Rust or C production code (the one Command::new is in a
- * test; hev_exec_run is a no-op in the Windows compat), but the in-process
- * mihomo's restart and updater exec paths were not audited.
+ * child from its own Rust or C production code (its only Command::new that
+ * compiles for Windows is in a test; hev_exec_run is a no-op in the Windows
+ * compat), but the in-process mihomo's restart and updater exec paths were
+ * not audited.
  */
 #if !defined(SOCK_CLOEXEC) && !defined(_WIN32) && defined(FD_CLOEXEC)
 static int
