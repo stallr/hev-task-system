@@ -222,7 +222,8 @@ task_io_splicer_init (HevTaskIOSplicer *self, size_t buf_size)
     HevTask *task = hev_task_self ();
     int res;
 
-    res = pipe2 (self->fd, O_NONBLOCK);
+    /* UNPINNED: Linux/Android splice pipes cannot run on the macOS host; CI has no splice test. */
+    res = pipe2 (self->fd, O_NONBLOCK | O_CLOEXEC);
     if (res < 0)
         goto exit;
 
