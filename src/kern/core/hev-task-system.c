@@ -22,7 +22,7 @@
 
 #include "hev-task-system.h"
 
-__thread HevTaskSystemContext *hev_task_system_tls_context HEV_TLS_MODEL;
+__thread HevTaskSystemContext *hev_task_system_tls_context;
 
 #ifdef _WIN32
 static int
