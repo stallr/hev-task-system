@@ -70,6 +70,12 @@ hev_task_unref (HevTask *self)
     if (self->ref_count)
         return;
 
+    hev_task_destroy (self);
+}
+
+void
+hev_task_destroy (HevTask *self)
+{
     hev_list_del (&hev_task_system_get_context ()->all_tasks, &self->list_node);
 
 #ifdef _WIN32

@@ -70,17 +70,17 @@ hev_task_system_init (void)
     HevMemoryAllocator *allocator = NULL;
     HevTaskSystemContext *context;
 
+    pthread_once (&key_once, pthread_key_creator);
+
+    if (hev_task_system_get_context ())
+        return -1;
+
 #ifdef ENABLE_MEMALLOC_SLICE
     allocator = hev_memory_allocator_slice_new ();
 #endif
     allocator = hev_memory_allocator_set_default (allocator);
     if (allocator)
         hev_memory_allocator_unref (allocator);
-
-    pthread_once (&key_once, pthread_key_creator);
-
-    if (hev_task_system_get_context ())
-        goto exit;
 
     context = hev_malloc0 (sizeof (HevTaskSystemContext));
     if (!context)
@@ -127,6 +127,9 @@ rest_context:
 free_context:
     hev_free (context);
 exit:
+    allocator = hev_memory_allocator_set_default (NULL);
+    if (allocator)
+        hev_memory_allocator_unref (allocator);
     return -1;
 }
 
@@ -135,6 +138,7 @@ hev_task_system_fini (void)
 {
     HevMemoryAllocator *allocator;
     HevTaskSystemContext *context;
+    HevListNode *node;
 
     /* Ensure the context key exists before reading it, so that fini
      * is safe even when it is called without a prior init. */
@@ -143,6 +147,10 @@ hev_task_system_fini (void)
     context = hev_task_system_get_context ();
     if (!context)
         return;
+
+    /* Free tasks that were never run or are still referenced. */
+    while ((node = hev_list_first (&context->all_tasks)))
+        hev_task_destroy (container_of (node, HevTask, list_node));
 
     if (context->dns_proxy)
         hev_task_dns_proxy_destroy (context->dns_proxy);
