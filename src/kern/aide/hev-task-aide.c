@@ -12,9 +12,11 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#include <hev-task.h>
+#include <hev-task-io.h>
+
 #include "kern/task/hev-task-private.h"
 #include "kern/io/hev-task-io-reactor.h"
-#include "lib/io/basic/hev-task-io.h"
 
 #include "hev-task-aide.h"
 
